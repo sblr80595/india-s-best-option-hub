@@ -300,7 +300,95 @@ async function handleDhanProxy(params, userClientId, userAccessToken) {
 }
 
 // ══════════════════════════════════════════════
-// ── SECTION 3: NSE API ──
+// ── SECTION 3: Fyers REST API ──
+// ══════════════════════════════════════════════
+
+const FYERS_BASE = "https://api-t1.fyers.in/data/v3";
+
+const FYERS_SYMBOL_MAP = {
+  NIFTY: "NSE:NIFTY50-INDEX",
+  BANKNIFTY: "NSE:NIFTYBANK-INDEX",
+  FINNIFTY: "NSE:FINNIFTY-INDEX",
+  MIDCPNIFTY: "NSE:MIDCPNIFTY-INDEX",
+  SENSEX: "BSE:SENSEX-INDEX",
+};
+
+// Convert Fyers date "DD-MM-YYYY" → "YYYY-MM-DD"
+function fyersDateToISO(dateStr) {
+  const parts = dateStr.split("-");
+  if (parts.length === 3 && parts[2].length === 4) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  return dateStr;
+}
+
+async function fyersFetch(path, queryParams, customAppId, customAccessToken) {
+  const appId = customAppId || process.env.FYERS_APP_ID || process.env.APP_ID;
+  const accessToken = customAccessToken || process.env.FYERS_ACCESS_TOKEN;
+
+  if (!appId || !accessToken) {
+    throw new Error("FYERS_APP_ID or FYERS_ACCESS_TOKEN not configured. Add them to .env or pass via headers.");
+  }
+
+  const url = new URL(`${FYERS_BASE}${path}`);
+  if (queryParams) {
+    for (const [k, v] of Object.entries(queryParams)) {
+      if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
+    }
+  }
+
+  const res = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `${appId}:${accessToken}`,
+    },
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Fyers API error [${res.status}]: ${errText}`);
+  }
+  return res.json();
+}
+
+async function handleFyersProxy(params, userAppId, userAccessToken) {
+  const endpoint = params.get("endpoint");
+  const symbol = (params.get("symbol") || "NIFTY").toUpperCase();
+  const expiry = params.get("expiry"); // YYYY-MM-DD
+  const userPrefix = userAppId ? `user:${userAppId}:` : "";
+  const cacheKey = `fyers:${userPrefix}${endpoint}:${symbol}:${expiry || ""}`;
+
+  const cached = getCached(cacheKey);
+  if (cached) return { data: cached, cacheHit: true };
+
+  const fyersSymbol = FYERS_SYMBOL_MAP[symbol];
+  if (!fyersSymbol) throw new Error(`Unknown symbol: ${symbol}. Supported: ${Object.keys(FYERS_SYMBOL_MAP).join(", ")}`);
+
+  switch (endpoint) {
+    case "option-chain": {
+      const qp = { symbol: fyersSymbol, strikecount: 20 };
+      if (expiry) qp.timestamp = expiry;
+
+      const result = await fyersFetch("/options-chain", qp, userAppId, userAccessToken);
+      setCache(cacheKey, result, 3500);
+      return { data: result, cacheHit: false };
+    }
+
+    case "expiry-list": {
+      // Fetch with strikecount=1 to minimize payload — we only need expiry dates
+      const result = await fyersFetch("/options-chain", { symbol: fyersSymbol, strikecount: 1 }, userAppId, userAccessToken);
+      const expiries = (result?.data?.expiryData || []).map(e => fyersDateToISO(e.expiry));
+      const expiryResult = { s: result?.s, data: expiries };
+      setCache(cacheKey, expiryResult, 60000);
+      return { data: expiryResult, cacheHit: false };
+    }
+
+    default:
+      throw new Error(`Unknown Fyers endpoint: ${endpoint}. Use: option-chain, expiry-list`);
+  }
+}
+
+// ══════════════════════════════════════════════
+// ── SECTION 4: NSE API ──
 // ══════════════════════════════════════════════
 
 let nseSessionCookies = "";
@@ -782,7 +870,7 @@ localWSS.on("connection", (ws) => {
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, x-dhan-client-id, x-dhan-access-token",
+  "Access-Control-Allow-Headers": "Content-Type, x-dhan-client-id, x-dhan-access-token, x-fyers-app-id, x-fyers-access-token",
 };
 
 const server = http.createServer(async (req, res) => {
@@ -805,6 +893,24 @@ const server = http.createServer(async (req, res) => {
       res.setHeader("X-Cache", cacheHit ? "HIT" : "MISS");
       res.writeHead(200);
       res.end(JSON.stringify(data));
+    } else if (url.pathname === "/api/fyers-proxy") {
+      const userAppId = req.headers["x-fyers-app-id"];
+      const userAccessToken = req.headers["x-fyers-access-token"];
+      const { data, cacheHit } = await handleFyersProxy(params, userAppId, userAccessToken);
+      res.setHeader("X-Cache", cacheHit ? "HIT" : "MISS");
+      res.writeHead(200);
+      res.end(JSON.stringify(data));
+    } else if (url.pathname === "/api/test-fyers-connection") {
+      const userAppId = req.headers["x-fyers-app-id"];
+      const userAccessToken = req.headers["x-fyers-access-token"];
+      try {
+        const result = await fyersFetch("/options-chain", { symbol: "NSE:NIFTY50-INDEX", strikecount: 1 }, userAppId, userAccessToken);
+        res.writeHead(200);
+        res.end(JSON.stringify({ status: result?.s === "ok" ? "success" : "error", message: result?.s === "ok" ? "Fyers API connected" : (result?.message || "Unknown error"), data: result }));
+      } catch (err) {
+        res.writeHead(200);
+        res.end(JSON.stringify({ status: "error", message: err.message }));
+      }
     } else if (url.pathname === "/api/nse-proxy") {
       const { data, cacheHit } = await handleNSEProxy(params);
       res.setHeader("X-Cache", cacheHit ? "HIT" : "MISS");
@@ -842,6 +948,7 @@ const server = http.createServer(async (req, res) => {
         },
         sources: {
           dhan: !!process.env.DHAN_CLIENT_ID,
+          fyers: !!(process.env.FYERS_ACCESS_TOKEN) && !!(process.env.FYERS_APP_ID || process.env.APP_ID),
           tradingview: true,
           nse: true,
         },
@@ -876,11 +983,14 @@ server.listen(PORT, () => {
   console.log(`  ├─ WebSocket:  ws://localhost:${PORT}/ws`);
   console.log(`  ├─ Health:     http://localhost:${PORT}/health`);
   console.log(`  ├─ Dhan (1°):  http://localhost:${PORT}/api/dhan-proxy?endpoint=option-chain&symbol=NIFTY`);
+  console.log(`  ├─ Fyers (1°): http://localhost:${PORT}/api/fyers-proxy?endpoint=option-chain&symbol=NIFTY`);
   console.log(`  ├─ NSE  (2°):  http://localhost:${PORT}/api/nse-proxy?endpoint=indices`);
   console.log(`  └─ TV Scanner: http://localhost:${PORT}/api/tv-scan?type=stocks`);
   console.log("");
-  console.log("  Data Priority: Dhan → NSE → TradingView");
+  console.log("  Data Priority: Dhan / Fyers (active broker) → NSE → TradingView");
   console.log("  Dhan credentials:", process.env.DHAN_CLIENT_ID ? "✅ Loaded from .env" : "⚠️  Not set (configure in .env or Broker Settings)");
+  const fyersAppId = process.env.FYERS_APP_ID || process.env.APP_ID;
+  console.log("  Fyers credentials:", (fyersAppId && process.env.FYERS_ACCESS_TOKEN) ? "✅ Loaded from .env" : "⚠️  Not set (configure in .env or Broker Settings)");
   console.log("");
 
   // Auto-connect Dhan WebSocket if credentials are in .env

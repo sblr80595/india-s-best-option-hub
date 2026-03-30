@@ -9,12 +9,15 @@ import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger } from "@/components/ui/context-menu";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Crosshair, Wifi, WifiOff, RefreshCw, Bell, TrendingUp, TrendingDown, Layers, ChevronLeft, ChevronRight, Settings2, Flame, Search, X } from "lucide-react";
+import { Crosshair, Wifi, WifiOff, RefreshCw, Bell, TrendingUp, TrendingDown, Layers, ChevronLeft, ChevronRight, Settings2, Flame, Search, X, ChevronDown } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useLiveOptionChain } from "@/hooks/useMarketData";
+import { useQueryClient } from "@tanstack/react-query";
+import { getSavedBrokers, setActiveBroker, getActiveBroker, BROKERS } from "@/lib/brokerConfig";
 import { toast } from "sonner";
 
 // ── Symbol categories for organized browsing ──
@@ -264,6 +267,20 @@ export default function OptionChain() {
     navigate(`/strategy?${new URLSearchParams({ symbol, strike: String(strike), type, action })}`);
   }, [symbol, navigate]);
 
+  const queryClient = useQueryClient();
+  const [activeBroker, setActiveBrokerState] = useState(getActiveBroker());
+  const savedBrokers = getSavedBrokers();
+  // Brokers that support option chain (Dhan & Fyers)
+  const optionChainBrokers = savedBrokers.filter(b => b.brokerId === "dhan" || b.brokerId === "fyers");
+
+  const handleSwitchBroker = (brokerId: string) => {
+    setActiveBroker(brokerId);
+    setActiveBrokerState(getActiveBroker());
+    queryClient.invalidateQueries({ queryKey: ["live-option-chain"] });
+    const broker = BROKERS.find(b => b.id === brokerId);
+    toast.success(`Switched to ${broker?.name || brokerId}`);
+  };
+
   const { data, isLoading, refetch } = useLiveOptionChain(symbol, selectedExpiry);
 
   const chain = data?.chain || [];
@@ -412,9 +429,49 @@ export default function OptionChain() {
         </div>
 
         <div className="flex items-center gap-1.5">
+          {/* Broker Selector */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="h-7 px-2 text-[10px] gap-1 font-medium">
+                <span>{BROKERS.find(b => b.id === activeBroker?.brokerId)?.logo || "🔌"}</span>
+                <span className="uppercase">{activeBroker?.brokerId || "No broker"}</span>
+                <ChevronDown className="h-3 w-3 opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuLabel className="text-[10px] text-muted-foreground">Data Source</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {optionChainBrokers.length > 0 ? (
+                optionChainBrokers.map(b => {
+                  const info = BROKERS.find(bi => bi.id === b.brokerId);
+                  const isActive = activeBroker?.brokerId === b.brokerId;
+                  return (
+                    <DropdownMenuItem
+                      key={b.brokerId}
+                      onClick={() => !isActive && handleSwitchBroker(b.brokerId)}
+                      className={`text-xs gap-2 ${isActive ? "bg-accent font-semibold" : ""}`}
+                    >
+                      <span>{info?.logo}</span>
+                      <span>{info?.name || b.brokerId}</span>
+                      {isActive && <span className="ml-auto text-[9px] text-primary">active</span>}
+                    </DropdownMenuItem>
+                  );
+                })
+              ) : (
+                <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+                  No broker configured
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-xs text-muted-foreground" onClick={() => navigate("/broker-settings")}>
+                Manage brokers →
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <Badge variant="outline" className={`gap-1 text-[9px] ${isLive ? "border-bullish/50 text-bullish" : "border-red-500/30 text-red-400"}`}>
             {isLive ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-            {isLive ? (data?.source === "dhan" ? "DHAN" : "NSE") : "OFFLINE"}
+            {isLive ? (data?.source === "fyers" ? "FYERS" : data?.source === "dhan" ? "DHAN" : "NSE") : "OFFLINE"}
           </Badge>
           <span className="text-[10px] font-mono">
             {symbol} <span className="font-semibold text-foreground">{spotPrice.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
@@ -586,6 +643,26 @@ export default function OptionChain() {
           <CardContent className="p-0 overflow-auto max-h-[65vh]">
             {isLoading ? (
               <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">Loading...</div>
+            ) : chain.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-48 text-center px-6 gap-3">
+                <WifiOff className="h-9 w-9 text-muted-foreground/30" />
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">No Live Data</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">
+                    {!activeBroker
+                      ? "No broker configured. Add Dhan or Fyers in Broker Settings."
+                      : `${BROKERS.find(b => b.id === activeBroker.brokerId)?.name || activeBroker.brokerId} returned no data — market may be closed or credentials invalid.`}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" className="gap-1 text-xs h-7" onClick={() => refetch()}>
+                    <RefreshCw className="h-3 w-3" /> Retry
+                  </Button>
+                  <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => navigate("/broker-settings")}>
+                    Broker Settings
+                  </Button>
+                </div>
+              </div>
             ) : (
               <Table>
                 <TableHeader className="sticky top-0 z-10 bg-card">

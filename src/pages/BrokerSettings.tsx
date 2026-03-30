@@ -16,7 +16,7 @@ import {
   type BrokerInfo,
   type BrokerCredentials,
 } from "@/lib/brokerConfig";
-import { testDhanConnection } from "@/lib/marketApi";
+import { testDhanConnection, testFyersConnection } from "@/lib/marketApi";
 import { useProxyHealth } from "@/hooks/useMarketData";
 import { useWebSocketStatus } from "@/hooks/useWebSocket";
 import {
@@ -166,6 +166,8 @@ function ConnectionStatusPanel() {
   const wsConnected = useWebSocketStatus();
   const [dhanStatus, setDhanStatus] = useState<"idle" | "testing" | "success" | "error">("idle");
   const [dhanMessage, setDhanMessage] = useState("");
+  const [fyersStatus, setFyersStatus] = useState<"idle" | "testing" | "success" | "error">("idle");
+  const [fyersMessage, setFyersMessage] = useState("");
 
   const handleTestDhan = async () => {
     setDhanStatus("testing");
@@ -187,6 +189,26 @@ function ConnectionStatusPanel() {
     }
   };
 
+  const handleTestFyers = async () => {
+    setFyersStatus("testing");
+    try {
+      const result = await testFyersConnection();
+      if (result.status === "success") {
+        setFyersStatus("success");
+        setFyersMessage("Connected successfully");
+        toast.success("Fyers API connection verified!");
+      } else {
+        setFyersStatus("error");
+        setFyersMessage(result.message || "Connection failed");
+        toast.error("Fyers connection failed: " + result.message);
+      }
+    } catch (e: any) {
+      setFyersStatus("error");
+      setFyersMessage(e.message || "Network error");
+      toast.error("Connection test failed");
+    }
+  };
+
   const sources = [
     {
       name: "Dhan API (Primary)",
@@ -198,6 +220,17 @@ function ConnectionStatusPanel() {
         ? "Credentials loaded from .env · Option Chain, Expiry, WebSocket"
         : dhanMessage || "Click Test to verify — provides Option Chain, Greeks, Live Ticks",
       color: dhanStatus === "success" || health?.sources?.dhan ? "text-emerald-500" : dhanStatus === "error" ? "text-red-500" : "text-zinc-500",
+    },
+    {
+      name: "Fyers API (Primary)",
+      icon: <Wifi className="h-4 w-4" />,
+      status: fyersStatus === "success" ? "online" : fyersStatus === "error" ? "offline" : health?.sources?.fyers ? "online" : "unknown",
+      detail: fyersStatus === "success"
+        ? "Primary source · Option Chain, Greeks, Expiry List"
+        : health?.sources?.fyers
+        ? "Credentials loaded from .env · Option Chain, Expiry List"
+        : fyersMessage || "Click Test to verify — provides Option Chain, Greeks",
+      color: fyersStatus === "success" || health?.sources?.fyers ? "text-yellow-500" : fyersStatus === "error" ? "text-red-500" : "text-zinc-500",
     },
     {
       name: "Dhan WebSocket",
@@ -257,6 +290,25 @@ function ConnectionStatusPanel() {
               </div>
               <p className="text-[10px] text-muted-foreground truncate">{src.detail}</p>
             </div>
+            {src.name.startsWith("Fyers API") && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1"
+                onClick={handleTestFyers}
+                disabled={fyersStatus === "testing"}
+              >
+                {fyersStatus === "testing" ? (
+                  <><Loader2 className="h-3 w-3 animate-spin" /> Testing</>
+                ) : fyersStatus === "success" ? (
+                  <><CheckCircle className="h-3 w-3 text-emerald-500" /> Connected</>
+                ) : fyersStatus === "error" ? (
+                  <><XCircle className="h-3 w-3 text-red-500" /> Retry</>
+                ) : (
+                  <>Test</>
+                )}
+              </Button>
+            )}
             {src.name.startsWith("Dhan API") && (
               <Button
                 size="sm"

@@ -25,6 +25,26 @@ async function fetchDhanProxy(endpoint: string, params?: Record<string, string>)
   return res.json();
 }
 
+// Direct fetch to local Fyers proxy with optional user credentials
+async function fetchFyersProxy(endpoint: string, params?: Record<string, string>): Promise<any> {
+  const qp = new URLSearchParams({ endpoint, ...params });
+  const url = `${PROXY_BASE}/api/fyers-proxy?${qp.toString()}`;
+
+  const headers: Record<string, string> = {};
+  const activeBroker = getActiveBroker();
+  if (activeBroker?.brokerId === "fyers" && activeBroker.values.appId && activeBroker.values.accessToken) {
+    headers["x-fyers-app-id"] = activeBroker.values.appId;
+    headers["x-fyers-access-token"] = activeBroker.values.accessToken;
+  }
+
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Fyers proxy error ${res.status}: ${errText}`);
+  }
+  return res.json();
+}
+
 // NSE proxy for indices & market status
 async function fetchNSEProxy(endpoint: string, symbol?: string): Promise<any> {
   const params = new URLSearchParams({ endpoint });
@@ -141,6 +161,91 @@ export function parseDhanOptionChain(raw: DhanOptionChainData): {
   return { chain, spotPrice, totalCEOI, totalPEOI };
 }
 
+// ── Parse Fyers Option Chain Response ──
+
+interface FyersOptionLeg {
+  strikePrice: number;
+  oi?: number;
+  oiChange?: number;
+  oiChangePercent?: number;
+  volume?: number;
+  bid?: number;
+  ask?: number;
+  ltp?: number;
+  iv?: number;
+  delta?: number;
+  gamma?: number;
+  theta?: number;
+  vega?: number;
+  optionType?: "CE" | "PE";
+}
+
+export function parseFyersOptionChain(raw: any): {
+  chain: OptionData[];
+  spotPrice: number;
+  totalCEOI: number;
+  totalPEOI: number;
+} {
+  const expiryData = raw?.data?.expiryData || [];
+  const spotPrice = raw?.data?.underlyingData?.ltp || 0;
+  // Use first expiry (nearest)
+  const chainData: FyersOptionLeg[] = expiryData[0]?.optionsChain || [];
+
+  const strikeMap = new Map<number, { ce: FyersOptionLeg | null; pe: FyersOptionLeg | null }>();
+  for (const item of chainData) {
+    const strike = item.strikePrice;
+    if (!strikeMap.has(strike)) strikeMap.set(strike, { ce: null, pe: null });
+    const entry = strikeMap.get(strike)!;
+    if (item.optionType === "CE") entry.ce = item;
+    else if (item.optionType === "PE") entry.pe = item;
+  }
+
+  const defaultLeg = { ltp: 0, oi: 0, oiChange: 0, volume: 0, iv: 0, delta: 0, gamma: 0, theta: 0, vega: 0, bidPrice: 0, askPrice: 0 };
+
+  let totalCEOI = 0;
+  let totalPEOI = 0;
+
+  const chain: OptionData[] = Array.from(strikeMap.entries())
+    .map(([strikePrice, { ce, pe }]) => {
+      const ceOI = ce?.oi || 0;
+      const peOI = pe?.oi || 0;
+      totalCEOI += ceOI;
+      totalPEOI += peOI;
+      return {
+        strikePrice,
+        ce: ce ? {
+          ltp: ce.ltp || 0,
+          oi: ceOI,
+          oiChange: ce.oiChange || 0,
+          volume: ce.volume || 0,
+          iv: ce.iv || 0,
+          delta: ce.delta || 0,
+          gamma: ce.gamma || 0,
+          theta: ce.theta || 0,
+          vega: ce.vega || 0,
+          bidPrice: ce.bid || 0,
+          askPrice: ce.ask || 0,
+        } : defaultLeg,
+        pe: pe ? {
+          ltp: pe.ltp || 0,
+          oi: peOI,
+          oiChange: pe.oiChange || 0,
+          volume: pe.volume || 0,
+          iv: pe.iv || 0,
+          delta: pe.delta || 0,
+          gamma: pe.gamma || 0,
+          theta: pe.theta || 0,
+          vega: pe.vega || 0,
+          bidPrice: pe.bid || 0,
+          askPrice: pe.ask || 0,
+        } : defaultLeg,
+      };
+    })
+    .sort((a, b) => a.strikePrice - b.strikePrice);
+
+  return { chain, spotPrice, totalCEOI, totalPEOI };
+}
+
 // ── Parse NSE Indices Response (kept for Dashboard) ──
 
 export function parseNSEIndices(raw: any): IndexData[] {
@@ -225,33 +330,55 @@ export function parseNSEOptionChain(raw: NSEOptionChainResponse, selectedExpiry?
 
 // ── Exported fetch functions ──
 
-// Dhan Option Chain (primary) with NSE fallback
+// Helper to map ExpiryDate array from a date string list
+function mapExpiries(dates: string[]): ExpiryDate[] {
+  return dates.map((dateStr: string) => {
+    const d = new Date(dateStr);
+    const days = Math.max(0, Math.ceil((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+    return {
+      label: d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }),
+      value: dateStr,
+      daysToExpiry: days,
+    };
+  });
+}
+
+// Dhan / Fyers Option Chain (primary) with NSE fallback
 export async function fetchLiveOptionChain(symbol: string, expiry?: string) {
-  // Try Dhan first
+  const activeBroker = getActiveBroker();
+
+  // Try Fyers if it's the active broker
+  if (activeBroker?.brokerId === "fyers") {
+    try {
+      const params: Record<string, string> = { symbol: symbol.toUpperCase() };
+      if (expiry) params.expiry = expiry;
+      const raw = await fetchFyersProxy("option-chain", params);
+      if (raw?.s === "ok" && raw?.data?.expiryData?.length > 0) {
+        const parsed = parseFyersOptionChain(raw);
+        let expiries: ExpiryDate[] = [];
+        try {
+          const expiryRaw = await fetchFyersProxy("expiry-list", { symbol: symbol.toUpperCase() });
+          if (expiryRaw?.data) expiries = mapExpiries(expiryRaw.data);
+        } catch { /* continue without expiry list */ }
+        return { ...parsed, expiries, source: "fyers" as const };
+      }
+    } catch (e) {
+      console.warn("Fyers option chain fetch failed, trying NSE:", e);
+    }
+  }
+
+  // Try Dhan (default primary)
   try {
     const params: Record<string, string> = { symbol: symbol.toUpperCase() };
     if (expiry) params.expiry = expiry;
     const raw = await fetchDhanProxy("option-chain", params);
     if (raw?.status === "success" && raw?.data?.oc) {
       const parsed = parseDhanOptionChain(raw);
-      // Also fetch expiry list
       let expiries: ExpiryDate[] = [];
       try {
         const expiryRaw = await fetchDhanProxy("expiry-list", { symbol: symbol.toUpperCase() });
-        if (expiryRaw?.data) {
-          expiries = expiryRaw.data.map((dateStr: string) => {
-            const d = new Date(dateStr);
-            const days = Math.max(0, Math.ceil((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
-            return {
-              label: d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }),
-              value: dateStr,
-              daysToExpiry: days,
-            };
-          });
-        }
-      } catch {
-        // Expiry fetch failed, continue with chain data
-      }
+        if (expiryRaw?.data) expiries = mapExpiries(expiryRaw.data);
+      } catch { /* continue without expiry list */ }
       return { ...parsed, expiries, source: "dhan" as const };
     }
   } catch (e) {
@@ -269,21 +396,23 @@ export async function fetchLiveOptionChain(symbol: string, expiry?: string) {
   }
 }
 
-// Dhan expiry list
+// Dhan / Fyers expiry list
 export async function fetchExpiryList(symbol: string): Promise<ExpiryDate[]> {
+  const activeBroker = getActiveBroker();
+
+  if (activeBroker?.brokerId === "fyers") {
+    try {
+      const raw = await fetchFyersProxy("expiry-list", { symbol: symbol.toUpperCase() });
+      if (raw?.data) return mapExpiries(raw.data);
+    } catch (e) {
+      console.warn("Fyers expiry list fetch failed:", e);
+    }
+    return [];
+  }
+
   try {
     const raw = await fetchDhanProxy("expiry-list", { symbol: symbol.toUpperCase() });
-    if (raw?.data) {
-      return raw.data.map((dateStr: string) => {
-        const d = new Date(dateStr);
-        const days = Math.max(0, Math.ceil((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
-        return {
-          label: d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }),
-          value: dateStr,
-          daysToExpiry: days,
-        };
-      });
-    }
+    if (raw?.data) return mapExpiries(raw.data);
   } catch (e) {
     console.warn("Dhan expiry list fetch failed:", e);
   }
@@ -473,6 +602,17 @@ export async function fetchFIIDII(): Promise<FIIDIIData[]> {
 }
 
 // ── Test Connection ──
+
+export async function testFyersConnection(): Promise<{ status: string; message: string }> {
+  const headers: Record<string, string> = {};
+  const activeBroker = getActiveBroker();
+  if (activeBroker?.brokerId === "fyers" && activeBroker.values.appId && activeBroker.values.accessToken) {
+    headers["x-fyers-app-id"] = activeBroker.values.appId;
+    headers["x-fyers-access-token"] = activeBroker.values.accessToken;
+  }
+  const res = await fetch(`${PROXY_BASE}/api/test-fyers-connection`, { headers });
+  return res.json();
+}
 
 export async function testDhanConnection(): Promise<{ status: string; message: string }> {
   const headers: Record<string, string> = {};

@@ -177,8 +177,11 @@ export function useMarketStatus() {
 // ── Hook: Live Option Chain ──
 // NO MOCK FALLBACK — returns null when live data unavailable
 export function useLiveOptionChain(symbol: string, expiry?: string) {
+  // Import inline to avoid circular dep — getActiveBroker reads localStorage
+  const activeBrokerId = (() => { try { const raw = localStorage.getItem("optionsdesk_broker_keys"); const list = raw ? JSON.parse(raw) : []; const active = list.find((b: any) => b.isActive) || list[0]; return active?.brokerId || "none"; } catch { return "none"; } })();
+
   return useQuery({
-    queryKey: ["live-option-chain", symbol, expiry],
+    queryKey: ["live-option-chain", symbol, expiry, activeBrokerId],
     queryFn: async () => {
       if (shouldTryProxy()) {
         try {
