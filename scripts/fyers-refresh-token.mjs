@@ -24,7 +24,7 @@
  *   node scripts/fyers-refresh-token.mjs --dry-run   # test without writing
  *
  * Add to crontab for daily auto-refresh at 8:55 AM (before market open):
- *   55 8 * * 1-5 cd /Users/sandeep/investment/india-s-best-option-hub && node scripts/fyers-refresh-token.mjs >> logs/fyers-refresh.log 2>&1
+ *   55 8 * * 1-5 cd /Users/sandeep/investment/India-OptionsHub-007 && node scripts/fyers-refresh-token.mjs >> logs/fyers-refresh.log 2>&1
  */
 
 import { createHmac, createHash } from "node:crypto";

@@ -1,4 +1,4 @@
-# 🚀 India's Best Option Hub — Open-Source Options & Futures Terminal
+# 🚀 India OptionsHub 007 — Open-Source Options & Futures Terminal
 
 <div align="center">
 
@@ -11,7 +11,7 @@ Built for NSE F&O traders who want institutional-grade tools — free, open-sour
 [![Vite](https://img.shields.io/badge/Vite-5.4-646cff?logo=vite&logoColor=white)](https://vitejs.dev)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-06b6d4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/MrChartist/india-s-best-option-hub/pulls)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/IOH007/India-OptionsHub-007/pulls)
 
 [Features](#-what-you-get) · [Quick Start](#-quick-start-5-minutes) · [Data Sources](#-data-sources) · [Pages Guide](#-pages-guide) · [Roadmap](#-current-status--roadmap) · [Contributing](#-contributing)
 
@@ -87,13 +87,13 @@ The dashboard is packed with live data widgets:
 Open your terminal (Command Prompt, PowerShell, or Terminal on Mac/Linux) and run:
 
 ```bash
-git clone https://github.com/MrChartist/india-s-best-option-hub.git
-cd india-s-best-option-hub
+git clone https://github.com/IOH007/India-OptionsHub-007.git
+cd India-OptionsHub-007
 ```
 
 **Option B: Download ZIP (no Git needed)**
 
-1. Go to [github.com/MrChartist/india-s-best-option-hub](https://github.com/MrChartist/india-s-best-option-hub)
+1. Go to [github.com/IOH007/India-OptionsHub-007](https://github.com/IOH007/India-OptionsHub-007)
 2. Click the green **"Code"** button → **"Download ZIP"**
 3. Extract the ZIP file to any folder
 4. Open a terminal in that folder
@@ -311,7 +311,7 @@ Configure your broker API credentials. See real-time connection status for all d
 ## 📁 Project Structure
 
 ```
-india-s-best-option-hub/
+India-OptionsHub-007/
 ├── proxy-server.mjs          # Local proxy server (Dhan + NSE + TradingView + WebSocket relay)
 ├── .env.example              # Environment variable template  
 ├── package.json              # Dependencies and scripts
@@ -612,10 +612,10 @@ You are free to use, copy, modify, merge, publish, distribute, sublicense, and/o
 
 <div align="center">
 
-**Built with ❤️ by [Mr. Chartist](https://github.com/MrChartist) for the Indian Options Trading Community**
+**Built with ❤️ by [IOH007](https://github.com/IOH007) for the Indian Options Trading Community**
 
 *If this project helps your trading, consider giving it a ⭐ on GitHub!*
 
-*Found a bug? Have an idea? [Open an issue](https://github.com/MrChartist/india-s-best-option-hub/issues) or submit a PR!*
+*Found a bug? Have an idea? [Open an issue](https://github.com/IOH007/India-OptionsHub-007/issues) or submit a PR!*
 
 </div>

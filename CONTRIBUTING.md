@@ -1,4 +1,4 @@
-# Contributing to India's Best Option Hub
+# Contributing to India OptionsHub 007
 
 First off, thank you for considering contributing! 🎉 This is an open-source community project and every contribution matters — whether it's fixing a typo, adding a feature, or improving documentation.
 
@@ -16,8 +16,8 @@ First off, thank you for considering contributing! 🎉 This is an open-source c
 1. **Fork** the repository on GitHub
 2. **Clone** your fork locally:
    ```bash
-   git clone https://github.com/YOUR-USERNAME/india-s-best-option-hub.git
-   cd india-s-best-option-hub
+   git clone https://github.com/YOUR-USERNAME/India-OptionsHub-007.git
+   cd India-OptionsHub-007
    ```
 3. **Install dependencies:**
    ```bash
@@ -86,12 +86,12 @@ Browser → useMarketData hooks → marketApi.ts → Proxy Server → Dhan/NSE/T
 ## How to Contribute
 
 ### 🐛 Bug Reports
-- Open an [issue](https://github.com/MrChartist/india-s-best-option-hub/issues) with steps to reproduce
+- Open an [issue](https://github.com/IOH007/India-OptionsHub-007/issues) with steps to reproduce
 - Include browser, OS, and Node.js version
 - Include screenshots if it's a UI issue
 
 ### 💡 Feature Requests
-- Open an [issue](https://github.com/MrChartist/india-s-best-option-hub/issues) describing the feature
+- Open an [issue](https://github.com/IOH007/India-OptionsHub-007/issues) describing the feature
 - Explain why it would be useful for F&O traders
 
 ### 🔧 Code Contributions
