@@ -39,6 +39,29 @@ try {
 } catch { /* .env file is optional */ }
 
 const PORT = parseInt(process.env.PROXY_PORT || "4002", 10);
+
+// ── Hot-reload .env for Fyers token (no restart needed after npm run refresh-fyers) ──
+function reloadEnvToken() {
+  try {
+    const envFile = readFileSync(resolve(__dirname, ".env"), "utf-8");
+    for (const line of envFile.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eqIdx = trimmed.indexOf("=");
+      if (eqIdx === -1) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      if (key !== "FYERS_ACCESS_TOKEN" && key !== "DHAN_ACCESS_TOKEN") continue;
+      let val = trimmed.slice(eqIdx + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) val = val.slice(1, -1);
+      if (process.env[key] !== val) {
+        process.env[key] = val;
+        console.log(`  🔄 Reloaded ${key} from .env`);
+      }
+    }
+  } catch { /* .env may not exist */ }
+}
+// Check every 30 minutes for a refreshed token
+setInterval(reloadEnvToken, 30 * 60 * 1000);
 const DHAN_BASE = "https://api.dhan.co/v2";
 const NSE_BASE = "https://www.nseindia.com";
 
@@ -936,10 +959,16 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ status: "error", message: err.message }));
       }
     } else if (url.pathname === "/health") {
+      const hasDhan  = !!process.env.DHAN_CLIENT_ID && !!process.env.DHAN_ACCESS_TOKEN;
+      const hasFyers = !!(process.env.FYERS_ACCESS_TOKEN) && !!(process.env.FYERS_APP_ID || process.env.APP_ID);
+      // activeBroker: explicit .env setting wins; otherwise pick whichever creds are present
+      const envActive = process.env.ACTIVE_BROKER;
+      const activeBroker = envActive || (hasFyers ? "fyers" : hasDhan ? "dhan" : null);
       res.writeHead(200);
       res.end(JSON.stringify({
         status: "ok",
         uptime: process.uptime(),
+        activeBroker,
         websocket: {
           dhanConnected: dhanWSConnected,
           browserClients: localWSS.clients.size,
@@ -947,8 +976,8 @@ const server = http.createServer(async (req, res) => {
           cachedTicks: latestTicks.size,
         },
         sources: {
-          dhan: !!process.env.DHAN_CLIENT_ID,
-          fyers: !!(process.env.FYERS_ACCESS_TOKEN) && !!(process.env.FYERS_APP_ID || process.env.APP_ID),
+          dhan: hasDhan,
+          fyers: hasFyers,
           tradingview: true,
           nse: true,
         },

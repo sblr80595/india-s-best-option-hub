@@ -177,11 +177,11 @@ export function useMarketStatus() {
 // ── Hook: Live Option Chain ──
 // NO MOCK FALLBACK — returns null when live data unavailable
 export function useLiveOptionChain(symbol: string, expiry?: string) {
-  // Import inline to avoid circular dep — getActiveBroker reads localStorage
-  const activeBrokerId = (() => { try { const raw = localStorage.getItem("optionsdesk_broker_keys"); const list = raw ? JSON.parse(raw) : []; const active = list.find((b: any) => b.isActive) || list[0]; return active?.brokerId || "none"; } catch { return "none"; } })();
+  // Read active broker from localStorage; proxy health fills the gap when none is set
+  const localBrokerId = (() => { try { const raw = localStorage.getItem("optionsdesk_broker_keys"); const list = raw ? JSON.parse(raw) : []; const active = list.find((b: any) => b.isActive) || list[0]; return active?.brokerId || "env"; } catch { return "env"; } })();
 
   return useQuery({
-    queryKey: ["live-option-chain", symbol, expiry, activeBrokerId],
+    queryKey: ["live-option-chain", symbol, expiry, localBrokerId],
     queryFn: async () => {
       if (shouldTryProxy()) {
         try {

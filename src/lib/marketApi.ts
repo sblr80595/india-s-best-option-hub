@@ -4,6 +4,28 @@ import { getActiveBroker } from "./brokerConfig";
 // Local proxy base URL — override via VITE_PROXY_URL if deploying proxy elsewhere
 const PROXY_BASE = import.meta.env.VITE_PROXY_URL || "http://localhost:4002";
 
+// ── Effective active broker: localStorage selection first, then proxy .env ──
+// Cached for 60s so we don't hit /health on every fetch
+let _proxyBrokerCache: { broker: string | null; ts: number } = { broker: null, ts: 0 };
+
+async function getEffectiveBroker(): Promise<string | null> {
+  // If user explicitly configured a broker in the UI, always use that
+  const local = getActiveBroker();
+  if (local) return local.brokerId;
+
+  // Otherwise ask the proxy which broker is configured via .env
+  if (Date.now() - _proxyBrokerCache.ts < 60_000) return _proxyBrokerCache.broker;
+  try {
+    const res = await fetch(`${PROXY_BASE}/health`);
+    if (res.ok) {
+      const data = await res.json();
+      _proxyBrokerCache = { broker: data.activeBroker || null, ts: Date.now() };
+      return _proxyBrokerCache.broker;
+    }
+  } catch { /* proxy unreachable */ }
+  return null;
+}
+
 // Direct fetch to local proxy with optional user credentials
 async function fetchDhanProxy(endpoint: string, params?: Record<string, string>): Promise<any> {
   const qp = new URLSearchParams({ endpoint, ...params });
@@ -345,10 +367,10 @@ function mapExpiries(dates: string[]): ExpiryDate[] {
 
 // Dhan / Fyers Option Chain (primary) with NSE fallback
 export async function fetchLiveOptionChain(symbol: string, expiry?: string) {
-  const activeBroker = getActiveBroker();
+  const effectiveBroker = await getEffectiveBroker();
 
   // Try Fyers if it's the active broker
-  if (activeBroker?.brokerId === "fyers") {
+  if (effectiveBroker === "fyers") {
     try {
       const params: Record<string, string> = { symbol: symbol.toUpperCase() };
       if (expiry) params.expiry = expiry;
@@ -398,9 +420,9 @@ export async function fetchLiveOptionChain(symbol: string, expiry?: string) {
 
 // Dhan / Fyers expiry list
 export async function fetchExpiryList(symbol: string): Promise<ExpiryDate[]> {
-  const activeBroker = getActiveBroker();
+  const effectiveBroker = await getEffectiveBroker();
 
-  if (activeBroker?.brokerId === "fyers") {
+  if (effectiveBroker === "fyers") {
     try {
       const raw = await fetchFyersProxy("expiry-list", { symbol: symbol.toUpperCase() });
       if (raw?.data) return mapExpiries(raw.data);

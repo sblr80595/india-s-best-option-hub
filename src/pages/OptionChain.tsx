@@ -269,9 +269,22 @@ export default function OptionChain() {
 
   const queryClient = useQueryClient();
   const [activeBroker, setActiveBrokerState] = useState(getActiveBroker());
+  const [proxyBroker, setProxyBroker] = useState<string | null>(null);
   const savedBrokers = getSavedBrokers();
   // Brokers that support option chain (Dhan & Fyers)
   const optionChainBrokers = savedBrokers.filter(b => b.brokerId === "dhan" || b.brokerId === "fyers");
+
+  // Fetch which broker is active in proxy .env (for users who haven't set up the UI)
+  useEffect(() => {
+    fetch("http://localhost:4002/health")
+      .then(r => r.json())
+      .then(d => { if (d.activeBroker) setProxyBroker(d.activeBroker); })
+      .catch(() => {});
+  }, []);
+
+  // The currently effective broker: localStorage selection > proxy .env
+  const effectiveBrokerId = activeBroker?.brokerId || proxyBroker;
+  const effectiveBrokerInfo = BROKERS.find(b => b.id === effectiveBrokerId);
 
   const handleSwitchBroker = (brokerId: string) => {
     setActiveBroker(brokerId);
@@ -433,35 +446,53 @@ export default function OptionChain() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="h-7 px-2 text-[10px] gap-1 font-medium">
-                <span>{BROKERS.find(b => b.id === activeBroker?.brokerId)?.logo || "🔌"}</span>
-                <span className="uppercase">{activeBroker?.brokerId || "No broker"}</span>
+                <span>{effectiveBrokerInfo?.logo || "🔌"}</span>
+                <span className="uppercase">{effectiveBrokerId || "No broker"}</span>
+                {!activeBroker && proxyBroker && (
+                  <span className="text-[8px] text-muted-foreground">.env</span>
+                )}
                 <ChevronDown className="h-3 w-3 opacity-50" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuContent align="end" className="w-52">
               <DropdownMenuLabel className="text-[10px] text-muted-foreground">Data Source</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {optionChainBrokers.length > 0 ? (
-                optionChainBrokers.map(b => {
-                  const info = BROKERS.find(bi => bi.id === b.brokerId);
-                  const isActive = activeBroker?.brokerId === b.brokerId;
-                  return (
-                    <DropdownMenuItem
-                      key={b.brokerId}
-                      onClick={() => !isActive && handleSwitchBroker(b.brokerId)}
-                      className={`text-xs gap-2 ${isActive ? "bg-accent font-semibold" : ""}`}
-                    >
-                      <span>{info?.logo}</span>
-                      <span>{info?.name || b.brokerId}</span>
-                      {isActive && <span className="ml-auto text-[9px] text-primary">active</span>}
-                    </DropdownMenuItem>
-                  );
-                })
-              ) : (
+
+              {/* Brokers configured via Broker Settings UI */}
+              {optionChainBrokers.map(b => {
+                const info = BROKERS.find(bi => bi.id === b.brokerId);
+                const isActive = effectiveBrokerId === b.brokerId;
+                return (
+                  <DropdownMenuItem
+                    key={b.brokerId}
+                    onClick={() => !isActive && handleSwitchBroker(b.brokerId)}
+                    className={`text-xs gap-2 ${isActive ? "bg-accent font-semibold" : ""}`}
+                  >
+                    <span>{info?.logo}</span>
+                    <span>{info?.name || b.brokerId}</span>
+                    {isActive && <span className="ml-auto text-[9px] text-primary">● active</span>}
+                  </DropdownMenuItem>
+                );
+              })}
+
+              {/* Broker from .env (no UI config needed) */}
+              {proxyBroker && !optionChainBrokers.find(b => b.brokerId === proxyBroker) && (
+                <>
+                  {optionChainBrokers.length > 0 && <DropdownMenuSeparator />}
+                  <DropdownMenuItem disabled className={`text-xs gap-2 ${effectiveBrokerId === proxyBroker ? "bg-accent font-semibold" : ""}`}>
+                    <span>{BROKERS.find(b => b.id === proxyBroker)?.logo || "🔌"}</span>
+                    <span className="capitalize">{proxyBroker}</span>
+                    <span className="ml-auto text-[9px] text-muted-foreground">.env ● active</span>
+                  </DropdownMenuItem>
+                </>
+              )}
+
+              {!proxyBroker && optionChainBrokers.length === 0 && (
                 <DropdownMenuItem disabled className="text-xs text-muted-foreground">
                   No broker configured
                 </DropdownMenuItem>
               )}
+
               <DropdownMenuSeparator />
               <DropdownMenuItem className="text-xs text-muted-foreground" onClick={() => navigate("/broker-settings")}>
                 Manage brokers →
@@ -471,7 +502,7 @@ export default function OptionChain() {
 
           <Badge variant="outline" className={`gap-1 text-[9px] ${isLive ? "border-bullish/50 text-bullish" : "border-red-500/30 text-red-400"}`}>
             {isLive ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-            {isLive ? (data?.source === "fyers" ? "FYERS" : data?.source === "dhan" ? "DHAN" : "NSE") : "OFFLINE"}
+            {isLive ? (data?.source === "fyers" ? "FYERS" : data?.source === "dhan" ? "DHAN" : "NSE") : (effectiveBrokerId ? effectiveBrokerId.toUpperCase() + " OFFLINE" : "OFFLINE")}
           </Badge>
           <span className="text-[10px] font-mono">
             {symbol} <span className="font-semibold text-foreground">{spotPrice.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
@@ -649,9 +680,9 @@ export default function OptionChain() {
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">No Live Data</p>
                   <p className="text-xs text-muted-foreground/60 mt-1">
-                    {!activeBroker
-                      ? "No broker configured. Add Dhan or Fyers in Broker Settings."
-                      : `${BROKERS.find(b => b.id === activeBroker.brokerId)?.name || activeBroker.brokerId} returned no data — market may be closed or credentials invalid.`}
+                    {!effectiveBrokerId
+                      ? "No broker configured. Add Dhan or Fyers credentials in Broker Settings or .env."
+                      : `${effectiveBrokerInfo?.name || effectiveBrokerId} returned no data — market may be closed or credentials invalid.`}
                   </p>
                 </div>
                 <div className="flex gap-2">
