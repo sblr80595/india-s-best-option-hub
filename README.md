@@ -17,15 +17,7 @@ Built for NSE F&O traders who want institutional-grade tools — free, open-sour
 
 </div>
 
----
 
-> **⚠️ BASE PROJECT — Work in Progress**
->
-> This is a **base/starter project** — it's functional and covers a LOT of ground, but some features may not be fully connected or polished yet. Think of it as a solid foundation you can build on top of. The creator ([MrChartist](https://github.com/MrChartist)) is actively working on completing this within the next **10–30 days**. See the [Roadmap](#-current-status--roadmap) for details.
->
-> **You're free to fork, copy, modify, and improve this project!** It's MIT licensed. If something doesn't make sense, throw the code at Claude/ChatGPT/Gemini and vibe-code your way through it. 🚀
-
----
 
 ## 🧠 What Is This?
 
