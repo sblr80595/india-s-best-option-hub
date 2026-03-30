@@ -208,18 +208,21 @@ export function parseFyersOptionChain(raw: any): {
   totalCEOI: number;
   totalPEOI: number;
 } {
-  const expiryData = raw?.data?.expiryData || [];
-  const spotPrice = raw?.data?.underlyingData?.ltp || 0;
-  // Use first expiry (nearest)
-  const chainData: FyersOptionLeg[] = expiryData[0]?.optionsChain || [];
+  // Response structure: data.optionsChain[] (flat array)
+  // First entry has strike_price: -1 and is the underlying index (spot price)
+  const optionsChain: any[] = raw?.data?.optionsChain || [];
+  const underlyingEntry = optionsChain.find((e: any) => e.strike_price === -1);
+  const spotPrice = underlyingEntry?.ltp || 0;
 
-  const strikeMap = new Map<number, { ce: FyersOptionLeg | null; pe: FyersOptionLeg | null }>();
-  for (const item of chainData) {
-    const strike = item.strikePrice;
+  // Group CE/PE by strike price
+  const strikeMap = new Map<number, { ce: any | null; pe: any | null }>();
+  for (const item of optionsChain) {
+    if (item.strike_price === -1 || !item.option_type) continue; // skip underlying entry
+    const strike = item.strike_price;
     if (!strikeMap.has(strike)) strikeMap.set(strike, { ce: null, pe: null });
     const entry = strikeMap.get(strike)!;
-    if (item.optionType === "CE") entry.ce = item;
-    else if (item.optionType === "PE") entry.pe = item;
+    if (item.option_type === "CE") entry.ce = item;
+    else if (item.option_type === "PE") entry.pe = item;
   }
 
   const defaultLeg = { ltp: 0, oi: 0, oiChange: 0, volume: 0, iv: 0, delta: 0, gamma: 0, theta: 0, vega: 0, bidPrice: 0, askPrice: 0 };
@@ -238,7 +241,7 @@ export function parseFyersOptionChain(raw: any): {
         ce: ce ? {
           ltp: ce.ltp || 0,
           oi: ceOI,
-          oiChange: ce.oiChange || 0,
+          oiChange: ce.oich || 0,
           volume: ce.volume || 0,
           iv: ce.iv || 0,
           delta: ce.delta || 0,
@@ -251,7 +254,7 @@ export function parseFyersOptionChain(raw: any): {
         pe: pe ? {
           ltp: pe.ltp || 0,
           oi: peOI,
-          oiChange: pe.oiChange || 0,
+          oiChange: pe.oich || 0,
           volume: pe.volume || 0,
           iv: pe.iv || 0,
           delta: pe.delta || 0,
@@ -375,7 +378,7 @@ export async function fetchLiveOptionChain(symbol: string, expiry?: string) {
       const params: Record<string, string> = { symbol: symbol.toUpperCase() };
       if (expiry) params.expiry = expiry;
       const raw = await fetchFyersProxy("option-chain", params);
-      if (raw?.s === "ok" && raw?.data?.expiryData?.length > 0) {
+      if ((raw?.s === "ok" || raw?.code === 200) && raw?.data?.optionsChain?.length > 0) {
         const parsed = parseFyersOptionChain(raw);
         let expiries: ExpiryDate[] = [];
         try {

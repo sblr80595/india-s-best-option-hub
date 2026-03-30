@@ -326,7 +326,7 @@ async function handleDhanProxy(params, userClientId, userAccessToken) {
 // ── SECTION 3: Fyers REST API ──
 // ══════════════════════════════════════════════
 
-const FYERS_BASE = "https://api-t1.fyers.in/data/v3";
+const FYERS_BASE = "https://api-t1.fyers.in/data";
 
 const FYERS_SYMBOL_MAP = {
   NIFTY: "NSE:NIFTY50-INDEX",
@@ -391,15 +391,15 @@ async function handleFyersProxy(params, userAppId, userAccessToken) {
       const qp = { symbol: fyersSymbol, strikecount: 20 };
       if (expiry) qp.timestamp = expiry;
 
-      const result = await fyersFetch("/options-chain", qp, userAppId, userAccessToken);
+      const result = await fyersFetch("/options-chain-v3", qp, userAppId, userAccessToken);
       setCache(cacheKey, result, 3500);
       return { data: result, cacheHit: false };
     }
 
     case "expiry-list": {
       // Fetch with strikecount=1 to minimize payload — we only need expiry dates
-      const result = await fyersFetch("/options-chain", { symbol: fyersSymbol, strikecount: 1 }, userAppId, userAccessToken);
-      const expiries = (result?.data?.expiryData || []).map(e => fyersDateToISO(e.expiry));
+      const result = await fyersFetch("/options-chain-v3", { symbol: fyersSymbol, strikecount: 1 }, userAppId, userAccessToken);
+      const expiries = (result?.data?.expiryData || []).map(e => fyersDateToISO(e.date));
       const expiryResult = { s: result?.s, data: expiries };
       setCache(cacheKey, expiryResult, 60000);
       return { data: expiryResult, cacheHit: false };
@@ -927,7 +927,7 @@ const server = http.createServer(async (req, res) => {
       const userAppId = req.headers["x-fyers-app-id"];
       const userAccessToken = req.headers["x-fyers-access-token"];
       try {
-        const result = await fyersFetch("/options-chain", { symbol: "NSE:NIFTY50-INDEX", strikecount: 1 }, userAppId, userAccessToken);
+        const result = await fyersFetch("/options-chain-v3", { symbol: "NSE:NIFTY50-INDEX", strikecount: 1 }, userAppId, userAccessToken);
         res.writeHead(200);
         res.end(JSON.stringify({ status: result?.s === "ok" ? "success" : "error", message: result?.s === "ok" ? "Fyers API connected" : (result?.message || "Unknown error"), data: result }));
       } catch (err) {
