@@ -9,15 +9,14 @@ import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger } from "@/components/ui/context-menu";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Crosshair, Wifi, WifiOff, RefreshCw, Bell, TrendingUp, TrendingDown, Layers, ChevronLeft, ChevronRight, Settings2, Flame, Search, X, ChevronDown } from "lucide-react";
+import { Crosshair, Wifi, WifiOff, RefreshCw, Bell, TrendingUp, TrendingDown, Layers, ChevronLeft, ChevronRight, Settings2, Flame, Search, X } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useLiveOptionChain } from "@/hooks/useMarketData";
 import { useQueryClient } from "@tanstack/react-query";
-import { getSavedBrokers, setActiveBroker, getActiveBroker, BROKERS } from "@/lib/brokerConfig";
+import { setActiveBroker, getActiveBroker, BROKERS } from "@/lib/brokerConfig";
 import { toast } from "sonner";
 
 // ── Symbol categories for organized browsing ──
@@ -270,11 +269,8 @@ export default function OptionChain() {
   const queryClient = useQueryClient();
   const [activeBroker, setActiveBrokerState] = useState(getActiveBroker());
   const [proxyBroker, setProxyBroker] = useState<string | null>(null);
-  const savedBrokers = getSavedBrokers();
-  // Brokers that support option chain (Dhan & Fyers)
-  const optionChainBrokers = savedBrokers.filter(b => b.brokerId === "dhan" || b.brokerId === "fyers");
 
-  // Fetch which broker is active in proxy .env (for users who haven't set up the UI)
+  // Fetch which broker is active in proxy .env
   useEffect(() => {
     fetch("http://localhost:4002/health")
       .then(r => r.json())
@@ -282,17 +278,19 @@ export default function OptionChain() {
       .catch(() => {});
   }, []);
 
+  // Re-sync when broker is switched from the sidebar
+  useEffect(() => {
+    const handleBrokerChanged = () => {
+      setActiveBrokerState(getActiveBroker());
+      queryClient.invalidateQueries({ queryKey: ["live-option-chain"] });
+    };
+    window.addEventListener("brokerChanged", handleBrokerChanged);
+    return () => window.removeEventListener("brokerChanged", handleBrokerChanged);
+  }, [queryClient]);
+
   // The currently effective broker: localStorage selection > proxy .env
   const effectiveBrokerId = activeBroker?.brokerId || proxyBroker;
   const effectiveBrokerInfo = BROKERS.find(b => b.id === effectiveBrokerId);
-
-  const handleSwitchBroker = (brokerId: string) => {
-    setActiveBroker(brokerId);
-    setActiveBrokerState(getActiveBroker());
-    queryClient.invalidateQueries({ queryKey: ["live-option-chain"] });
-    const broker = BROKERS.find(b => b.id === brokerId);
-    toast.success(`Switched to ${broker?.name || brokerId}`);
-  };
 
   const { data, isLoading, refetch } = useLiveOptionChain(symbol, selectedExpiry);
 
@@ -442,64 +440,6 @@ export default function OptionChain() {
         </div>
 
         <div className="flex items-center gap-1.5">
-          {/* Broker Selector */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="h-7 px-2 text-[10px] gap-1 font-medium">
-                <span>{effectiveBrokerInfo?.logo || "🔌"}</span>
-                <span className="uppercase">{effectiveBrokerId || "No broker"}</span>
-                {!activeBroker && proxyBroker && (
-                  <span className="text-[8px] text-muted-foreground">.env</span>
-                )}
-                <ChevronDown className="h-3 w-3 opacity-50" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              <DropdownMenuLabel className="text-[10px] text-muted-foreground">Data Source</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-
-              {/* Brokers configured via Broker Settings UI */}
-              {optionChainBrokers.map(b => {
-                const info = BROKERS.find(bi => bi.id === b.brokerId);
-                const isActive = effectiveBrokerId === b.brokerId;
-                return (
-                  <DropdownMenuItem
-                    key={b.brokerId}
-                    onClick={() => !isActive && handleSwitchBroker(b.brokerId)}
-                    className={`text-xs gap-2 ${isActive ? "bg-accent font-semibold" : ""}`}
-                  >
-                    <span>{info?.logo}</span>
-                    <span>{info?.name || b.brokerId}</span>
-                    {isActive && <span className="ml-auto text-[9px] text-primary">● active</span>}
-                  </DropdownMenuItem>
-                );
-              })}
-
-              {/* Broker from .env (no UI config needed) */}
-              {proxyBroker && !optionChainBrokers.find(b => b.brokerId === proxyBroker) && (
-                <>
-                  {optionChainBrokers.length > 0 && <DropdownMenuSeparator />}
-                  <DropdownMenuItem disabled className={`text-xs gap-2 ${effectiveBrokerId === proxyBroker ? "bg-accent font-semibold" : ""}`}>
-                    <span>{BROKERS.find(b => b.id === proxyBroker)?.logo || "🔌"}</span>
-                    <span className="capitalize">{proxyBroker}</span>
-                    <span className="ml-auto text-[9px] text-muted-foreground">.env ● active</span>
-                  </DropdownMenuItem>
-                </>
-              )}
-
-              {!proxyBroker && optionChainBrokers.length === 0 && (
-                <DropdownMenuItem disabled className="text-xs text-muted-foreground">
-                  No broker configured
-                </DropdownMenuItem>
-              )}
-
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-xs text-muted-foreground" onClick={() => navigate("/broker-settings")}>
-                Manage brokers →
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
           <Badge variant="outline" className={`gap-1 text-[9px] ${isLive ? "border-bullish/50 text-bullish" : "border-red-500/30 text-red-400"}`}>
             {isLive ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
             {isLive ? (data?.source === "fyers" ? "FYERS" : data?.source === "dhan" ? "DHAN" : "NSE") : (effectiveBrokerId ? effectiveBrokerId.toUpperCase() + " OFFLINE" : "OFFLINE")}

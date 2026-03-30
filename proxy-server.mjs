@@ -1,5 +1,5 @@
 /**
- * Local CORS Proxy Server for Mr. Chartist Options Terminal
+ * Local CORS Proxy Server for IOH007 — India OptionsHub
  * 
  * Features:
  *   1. HTTP Proxy — forwards to Dhan API v2 and NSE India (CORS handled)
@@ -150,7 +150,10 @@ async function handleDhanProxy(params, userClientId, userAccessToken) {
       const underlying = UNDERLYING_MAP[symbol];
       if (!underlying) throw new Error(`Unknown symbol: ${symbol}. Supported: ${Object.keys(UNDERLYING_MAP).join(", ")}`);
 
-      let expiryDate = expiry;
+      // Validate that expiry is a real YYYY-MM-DD date string
+      const isValidDate = (d) => d && /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(Date.parse(d));
+
+      let expiryDate = isValidDate(expiry) ? expiry : null;
       if (!expiryDate) {
         const expiryListKey = `dhan:expiry-list:${symbol}:`;
         let expiryList = getCached(expiryListKey);
@@ -162,7 +165,8 @@ async function handleDhanProxy(params, userClientId, userAccessToken) {
           setCache(expiryListKey, expiryList, 60000);
           await new Promise(r => setTimeout(r, 3500));
         }
-        if (expiryList?.data?.length > 0) expiryDate = expiryList.data[0];
+        const firstExpiry = expiryList?.data?.[0];
+        if (isValidDate(firstExpiry)) expiryDate = firstExpiry;
       }
 
       const body = {
@@ -344,8 +348,9 @@ function fyersDateToISO(dateStr) {
 }
 
 async function fyersFetch(path, queryParams, customAppId, customAccessToken) {
-  const appId = customAppId || process.env.FYERS_APP_ID || process.env.APP_ID;
-  const accessToken = customAccessToken || process.env.FYERS_ACCESS_TOKEN;
+  const usingEnvToken = !customAccessToken;
+  let appId = customAppId || process.env.FYERS_APP_ID || process.env.APP_ID;
+  let accessToken = customAccessToken || process.env.FYERS_ACCESS_TOKEN;
 
   if (!appId || !accessToken) {
     throw new Error("FYERS_APP_ID or FYERS_ACCESS_TOKEN not configured. Add them to .env or pass via headers.");
@@ -358,13 +363,24 @@ async function fyersFetch(path, queryParams, customAppId, customAccessToken) {
     }
   }
 
-  const res = await fetch(url.toString(), {
+  const doFetch = (aid, tok) => fetch(url.toString(), {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `${appId}:${accessToken}`,
+      "Authorization": `${aid}:${tok}`,
     },
   });
+
+  let res = await doFetch(appId, accessToken);
+
+  // On 401 with env token: reload .env and retry once
+  if (res.status === 401 && usingEnvToken) {
+    console.log("  ⚠️  Fyers 401 — reloading token from .env and retrying...");
+    reloadEnvToken();
+    appId = process.env.FYERS_APP_ID || process.env.APP_ID;
+    accessToken = process.env.FYERS_ACCESS_TOKEN;
+    res = await doFetch(appId, accessToken);
+  }
 
   if (!res.ok) {
     const errText = await res.text();
@@ -1007,7 +1023,7 @@ server.on("upgrade", (request, socket, head) => {
 
 server.listen(PORT, () => {
   console.log("");
-  console.log("  🚀 Mr. Chartist Proxy Server");
+  console.log("  🚀 IOH007 — India OptionsHub Proxy Server");
   console.log(`  ├─ HTTP:       http://localhost:${PORT}`);
   console.log(`  ├─ WebSocket:  ws://localhost:${PORT}/ws`);
   console.log(`  ├─ Health:     http://localhost:${PORT}/health`);
